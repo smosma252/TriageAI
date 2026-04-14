@@ -1,2 +1,103 @@
 # TriageAI
->A developer connects their GitHub + Jira, and TriageAI automatically analyzes new bug tickets, finds the likely source in the codebase, and opens a draft PR with a proposed fix.
+>TriageAI is an autonomous code health platform that monitors your codebase 24/7. It triages incoming bug tickets, detects performance regressions, and proposes enhancements — all delivered as draft pull requests for your >team to review and merge.No more junior tickets sitting in backlog. No more "we'll optimize that later." TriageAI keeps your codebase healthy while your engineers focus on building.
+
+
+High-Level Architecture
+┌─────────────────────────────────────────────────────────────┐
+│                        SIGNAL LAYER                         │
+│                                                             │
+│   Jira/Linear  ──►  Bug Ticket                             │
+│   Sentry/DD    ──►  Runtime Alert      ──►  Event Queue    │
+│   GitHub Hook  ──►  New Commit/PR                          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      ORCHESTRATION LAYER                    │
+│                                                             │
+│   Event Router  ──►  classifies signal type                │
+│   Task Queue    ──►  prioritizes + dispatches agent jobs   │
+│   Rate Limiter  ──►  prevents repo flooding                │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        AGENT LAYER                          │
+│                                                             │
+│   ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐  │
+│   │  Bug Agent  │  │  Perf Agent  │  │ Enhance Agent   │  │
+│   │             │  │              │  │                 │  │
+│   │ reads ticket│  │ reads alert/ │  │ scans patterns  │  │
+│   │ finds root  │  │ commit diff  │  │ ticket trends   │  │
+│   │ cause       │  │ finds hotspot│  │ dead code etc   │  │
+│   │ writes fix  │  │ optimizes    │  │ proposes refactor│  │
+│   └─────────────┘  └──────────────┘  └─────────────────┘  │
+│                                                             │
+│              All agents share:                             │
+│              - Codebase context (RAG / vector index)       │
+│              - LLM reasoning (Claude)                      │
+│              - Confidence scorer                           │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     CODEBASE CONTEXT LAYER                  │
+│                                                             │
+│   Git Clone  ──►  Chunker  ──►  Embeddings  ──►  VectorDB  │
+│                                                             │
+│   Re-indexed on every merged PR                            │
+│   Scoped retrieval per agent query                         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                       OUTPUT LAYER                          │
+│                                                             │
+│   Branch Creator  ──►  creates isolated branch per job     │
+│   Patch Writer    ──►  applies code changes                │
+│   PR Builder      ──►  opens draft PR with:                │
+│                        - What was found                    │
+│                        - Why it's a problem                │
+│                        - What was changed                  │
+│                        - Confidence score (0–100%)         │
+│                        - Links back to original ticket     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     FEEDBACK LOOP LAYER                     │
+│                                                             │
+│   PR merged?       ──►  positive signal, re-train weight   │
+│   PR closed/rejected ──► negative signal, log reason       │
+│   Developer edits PR ──► diff captured for improvement     │
+│                                                             │
+│   Weekly Code Health Report  ──►  emailed to eng lead      │
+└─────────────────────────────────────────────────────────────┘
+
+The Three Agents
+🐛 Bug Agent
+Triggered by an inbound ticket from Jira or Linear. The agent reads the ticket, pulls relevant context from the vector index, walks the call graph around the suspected area, identifies the root cause, and writes a targeted fix. Every PR it opens includes a plain-English explanation of what broke and why.
+⚡ Performance Agent
+Triggered two ways — a runtime alert from Sentry or DataDog, or a new commit landing on the main branch. For runtime alerts it traces the slow path back to the code. For commits it diffs the change and runs static analysis looking for regressions like N+1 queries, unindexed lookups, or blocking calls. The PR includes before/after complexity notes and the reasoning behind the change.
+✨ Enhancement Agent
+Runs on a schedule rather than a trigger. It scans the codebase for dead code, duplication, outdated patterns, and dependency drift. It also reads ticket history to spot recurring problem areas — if the same module keeps generating bugs, it flags it for a deeper refactor proposal. This agent operates at the lowest confidence threshold and always frames its PRs as suggestions rather than fixes.
+
+Trust & Safety Model
+TriageAI is built around the principle that developers always stay in control.
+
+All PRs are opened as drafts — nothing is auto-merged, ever
+Every PR carries a confidence score so developers know how much to trust it
+Agents will never touch migration files, environment configs, or secrets
+A dry-run mode is available to preview what the agent would do without opening a PR
+The feedback loop learns from rejections — a closed PR with a comment makes the next one better
+
+
+Integrations
+CategorySupportedTicket SystemsJira, Linear (Salesforce planned)Code HostsGitHub (GitLab planned)MonitoringSentry, DataDog, New RelicNotificationsSlack, EmailLanguagesPython, TypeScript (more planned)
+
+Roadmap
+
+v0.1 — Bug Agent + Jira + GitHub (MVP)
+v0.2 — Performance Agent + Sentry/DataDog integration
+v0.3 — Enhancement Agent + weekly health reports
+v1.0 — Multi-language, multi-repo, dashboard UI, team analytics
